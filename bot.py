@@ -1,19 +1,12 @@
 import os, json, asyncio, logging
 from datetime import datetime
 from telegram import Update
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    ContextTypes,
-    filters
-)
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 import gspread
 from google.oauth2.service_account import Credentials
 
 logging.basicConfig(level=logging.INFO)
 
-# ---------- ENV ----------
 def need(name):
     val = os.getenv(name)
     if not val:
@@ -22,16 +15,23 @@ def need(name):
 
 TOKEN = need("BOT_TOKEN")
 ADMIN_ID = int(need("ADMIN_ID"))
+SPREADSHEET_ID = need("SPREADSHEET_ID")
 CREDS_RAW = need("GOOGLE_CREDENTIALS")
 
-# ---------- GOOGLE ----------
-scope = ["https://www.googleapis.com/auth/spreadsheets"]
-creds_dict = json.loads(CREDS_RAW)
-creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
-gc = gspread.authorize(creds)
-sheet = gc.open("Admissions").sheet1
+# ---- GOOGLE AUTH ----
+scopes = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
 
-# ---------- BOT ----------
+creds_info = json.loads(CREDS_RAW)
+creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
+gc = gspread.authorize(creds)
+
+# ⚠ DO NOT use gc.open("Admissions")
+sheet = gc.open_by_key(SPREADSHEET_ID).sheet1
+
+# ---- BOT ----
 users = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -91,9 +91,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Thanks! Our team will contact you shortly.")
     del users[uid]
 
-# ---------- START ----------
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
-    app.run_polling(close_loop=False)
+    app.run_polling()
