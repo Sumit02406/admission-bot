@@ -1,15 +1,20 @@
+import os, json
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 
-TOKEN = "8283743685:AAGqGvD54t---tXlNlt0DIspU3P_6kWfsl8"
-ADMIN_ID = 5550293914   # replace with your Telegram numeric id
+# Load secrets from Railway environment variables
+TOKEN = os.environ["8283743685:AAGqGvD54t---tXlNlt0DIspU3P_6kWfsl8"]
+ADMIN_ID = int(os.environ["5550293914"])
 
-scope = ["https://spreadsheets.google.com/feeds",
-         "https://www.googleapis.com/auth/drive"]
+scope = [
+    "https://spreadsheets.google.com/feeds",
+    "https://www.googleapis.com/auth/drive"
+]
 
-creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+creds_json = json.loads(os.environ["GOOGLE_CREDENTIALS"])
+creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_json, scope)
 client = gspread.authorize(creds)
 sheet = client.open("Admissions").sheet1
 
