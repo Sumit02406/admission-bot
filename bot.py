@@ -1,94 +1,99 @@
-import os, json, asyncio
+import os, json, asyncio, logging
 from datetime import datetime
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
+from telegram import Update
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters
+)
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2.service_account import Credentials
 
-# ---------- ENV SAFETY ----------
-def env(name):
-    value = os.getenv(name)
-    if not value:
-        raise RuntimeError(f"Missing environment variable: {name}")
-    return value
+logging.basicConfig(level=logging.INFO)
 
-TOKEN = env("BOT_TOKEN")
-ADMIN_ID = int(env("ADMIN_ID"))
-GOOGLE_CREDS = env("GOOGLE_CREDENTIALS")
+# ---------- ENV ----------
+def need(name):
+    val = os.getenv(name)
+    if not val:
+        raise RuntimeError(f"Missing env var: {name}")
+    return val
 
-# ---------- GOOGLE SHEETS ----------
-scope = [
-    "https://spreadsheets.google.com/feeds",
-    "https://www.googleapis.com/auth/drive"
-]
+TOKEN = need("BOT_TOKEN")
+ADMIN_ID = int(need("ADMIN_ID"))
+CREDS_RAW = need("GOOGLE_CREDENTIALS")
 
-creds_dict = json.loads(GOOGLE_CREDS)
-creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-client = gspread.authorize(creds)
-sheet = client.open("Admissions").sheet1
+# ---------- GOOGLE ----------
+scope = ["https://www.googleapis.com/auth/spreadsheets"]
+creds_dict = json.loads(CREDS_RAW)
+creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+gc = gspread.authorize(creds)
+sheet = gc.open("Admissions").sheet1
 
-# ---------- BOT LOGIC ----------
-user_data = {}
+# ---------- BOT ----------
+users = {}
 
-async def start(update, context):
-    user_data[update.effective_user.id] = {}
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    users[update.effective_user.id] = {}
     await update.message.reply_text("Welcome! What's your name?")
 
-async def message_handler(update, context):
+async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
 
     uid = update.effective_user.id
     text = update.message.text.strip()
 
-    if uid not in user_data:
+    if uid not in users:
         await update.message.reply_text("Type /start to begin.")
         return
 
-    data = user_data[uid]
+    u = users[uid]
 
-    if "name" not in data:
-        data["name"] = text
+    if "name" not in u:
+        u["name"] = text
         await update.message.reply_text("Your phone number?")
-    elif "phone" not in data:
-        data["phone"] = text
+        return
+
+    if "phone" not in u:
+        u["phone"] = text
         await update.message.reply_text("Which course are you interested in?")
-    elif "course" not in data:
-        data["course"] = text
+        return
+
+    if "course" not in u:
+        u["course"] = text
         await update.message.reply_text("Your city?")
-    elif "city" not in data:
-        data["city"] = text
+        return
 
-        row = [
-            data["name"],
-            data["phone"],
-            data["course"],
-            data["city"],
-            datetime.now().strftime("%d-%m-%Y %H:%M")
-        ]
+    u["city"] = text
 
-        # Prevent event-loop blocking
-        await context.application.run_in_executor(
-            None,
-            lambda: sheet.append_row(row)
-        )
+    row = [
+        u["name"],
+        u["phone"],
+        u["course"],
+        u["city"],
+        datetime.now().strftime("%d-%m-%Y %H:%M")
+    ]
 
-        await context.bot.send_message(
-            chat_id=ADMIN_ID,
-            text=(
-                "New Lead:\n"
-                f"Name: {data['name']}\n"
-                f"Phone: {data['phone']}\n"
-                f"Course: {data['course']}\n"
-                f"City: {data['city']}"
-            )
-        )
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, lambda: sheet.append_row(row))
 
-        await update.message.reply_text("Thanks! Our team will contact you shortly.")
-        del user_data[uid]
+    await context.bot.send_message(
+        ADMIN_ID,
+        f"New Lead\n\n"
+        f"Name: {u['name']}\n"
+        f"Phone: {u['phone']}\n"
+        f"Course: {u['course']}\n"
+        f"City: {u['city']}"
+    )
 
-# ---------- START APP ----------
-app = ApplicationBuilder().token(TOKEN).build()
-app.add_handler(CommandHandler("start", start))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+    await update.message.reply_text("Thanks! Our team will contact you shortly.")
+    del users[uid]
 
-app.run_polling()
+# ---------- START ----------
+if __name__ == "__main__":
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+    app.run_polling(close_loop=False)
