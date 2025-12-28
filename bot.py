@@ -13,8 +13,8 @@ scope = [
     "https://www.googleapis.com/auth/drive"
 ]
 
-creds_json = json.loads(os.environ["GOOGLE_CREDENTIALS"])
-creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_json, scope)
+creds_dict = json.loads(os.environ["GOOGLE_CREDENTIALS"])
+creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 sheet = client.open("Admissions").sheet1
 
