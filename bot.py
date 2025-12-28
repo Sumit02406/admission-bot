@@ -1,18 +1,11 @@
-import os, json, asyncio
-from telegram import Update
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    ContextTypes,
-    filters
-)
+import os, json
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 
-TOKEN = os.environ["8283743685:AAGqGvD54t---tXlNlt0DIspU3P_6kWfsl8"]
-ADMIN_ID = int(os.environ["5550293914"])
+TOKEN = os.environ["TELEGRAM_TOKEN"]
+ADMIN_ID = int(os.environ["ADMIN_ID"])
 
 scope = [
     "https://spreadsheets.google.com/feeds",
@@ -26,11 +19,11 @@ sheet = client.open("Admissions").sheet1
 
 user_data = {}
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(update, context):
     user_data[update.effective_user.id] = {}
     await update.message.reply_text("Welcome! What's your name?")
 
-async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def message_handler(update, context):
     uid = update.effective_user.id
     text = update.message.text
 
@@ -66,13 +59,9 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Thanks! Our team will contact you shortly.")
         del user_data[uid]
 
-async def main():
-    app = ApplicationBuilder().token(TOKEN).build()
+app = ApplicationBuilder().token(TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+app.add_handler(CommandHandler("start", start))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
 
-    await app.run_polling()
-
-if __name__ == "__main__":
-    asyncio.run(main())
+app.run_polling()
