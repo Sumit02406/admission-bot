@@ -1,10 +1,16 @@
-import os, json
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+import os, json, asyncio
+from telegram import Update
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters
+)
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 
-# Load secrets from Railway environment variables
 TOKEN = os.environ["8283743685:AAGqGvD54t---tXlNlt0DIspU3P_6kWfsl8"]
 ADMIN_ID = int(os.environ["5550293914"])
 
@@ -13,36 +19,36 @@ scope = [
     "https://www.googleapis.com/auth/drive"
 ]
 
-creds_dict = json.loads(os.environ["GOOGLE_CREDENTIALS"])
-creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+creds_json = json.loads(os.environ["GOOGLE_CREDENTIALS"])
+creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_json, scope)
 client = gspread.authorize(creds)
 sheet = client.open("Admissions").sheet1
 
 user_data = {}
 
-def start(update, context):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data[update.effective_user.id] = {}
-    update.message.reply_text("Welcome! What's your name?")
+    await update.message.reply_text("Welcome! What's your name?")
 
-def message_handler(update, context):
+async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     text = update.message.text
 
     if uid not in user_data:
-        update.message.reply_text("Type /start to begin.")
+        await update.message.reply_text("Type /start to begin.")
         return
 
     data = user_data[uid]
 
     if "name" not in data:
         data["name"] = text
-        update.message.reply_text("Your phone number?")
+        await update.message.reply_text("Your phone number?")
     elif "phone" not in data:
         data["phone"] = text
-        update.message.reply_text("Which course are you interested in?")
+        await update.message.reply_text("Which course are you interested in?")
     elif "course" not in data:
         data["course"] = text
-        update.message.reply_text("Your city?")
+        await update.message.reply_text("Your city?")
     elif "city" not in data:
         data["city"] = text
 
@@ -52,19 +58,21 @@ def message_handler(update, context):
             datetime.now().strftime("%d-%m-%Y %H:%M")
         ])
 
-        context.bot.send_message(
+        await context.bot.send_message(
             chat_id=ADMIN_ID,
             text=f"New Lead:\nName: {data['name']}\nPhone: {data['phone']}\nCourse: {data['course']}\nCity: {data['city']}"
         )
 
-        update.message.reply_text("Thanks! Our team will contact you shortly.")
+        await update.message.reply_text("Thanks! Our team will contact you shortly.")
         del user_data[uid]
 
-updater = Updater(TOKEN, use_context=True)
-dp = updater.dispatcher
+async def main():
+    app = ApplicationBuilder().token(TOKEN).build()
 
-dp.add_handler(CommandHandler("start", start))
-dp.add_handler(MessageHandler(Filters.text & ~Filters.command, message_handler))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
 
-updater.start_polling()
-updater.idle()
+    await app.run_polling()
+
+if __name__ == "__main__":
+    asyncio.run(main())
