@@ -77,7 +77,10 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
 
     loop = asyncio.get_running_loop()
+    try:
     await loop.run_in_executor(None, lambda: sheet.append_row(row))
+except Exception as e:
+    print("Google Sheet error:", e)
 
     await context.bot.send_message(
         ADMIN_ID,
@@ -91,8 +94,17 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Thanks! Our team will contact you shortly.")
     del users[uid]
 
-if __name__ == "__main__":
+import time
+
+def run_bot():
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
-    app.run_polling()
+    app.run_polling(close_loop=False)
+
+while True:
+    try:
+        run_bot()
+    except Exception as e:
+        print("FATAL ERROR — restarting in 5 seconds:", e)
+        time.sleep(5)
