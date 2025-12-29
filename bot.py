@@ -1,4 +1,4 @@
-import os, json, asyncio, logging
+import os, json, asyncio, logging, time
 from datetime import datetime
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
@@ -7,31 +7,37 @@ from google.oauth2.service_account import Credentials
 
 logging.basicConfig(level=logging.INFO)
 
+# -------- ENV ----------
 def need(name):
-    val = os.getenv(name)
-    if not val:
+    v = os.getenv(name)
+    if not v:
         raise RuntimeError(f"Missing env var: {name}")
-    return val
+    return v
 
 TOKEN = need("BOT_TOKEN")
 ADMIN_ID = int(need("ADMIN_ID"))
 SPREADSHEET_ID = need("SPREADSHEET_ID")
 CREDS_RAW = need("GOOGLE_CREDENTIALS")
 
-# ---- GOOGLE AUTH ----
-scopes = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
-]
+# -------- GOOGLE SAFE CONNECT ----------
+def connect_sheet():
+    for attempt in range(1, 6):
+        try:
+            logging.info(f"Connecting to Google Sheets (attempt {attempt})")
+            creds = Credentials.from_service_account_info(
+                json.loads(CREDS_RAW),
+                scopes=["https://www.googleapis.com/auth/spreadsheets"]
+            )
+            gc = gspread.authorize(creds)
+            return gc.open_by_key(SPREADSHEET_ID).sheet1
+        except Exception as e:
+            logging.error(f"Google connection failed: {e}")
+            time.sleep(10)
+    raise RuntimeError("Google Sheets unreachable after 5 attempts")
 
-creds_info = json.loads(CREDS_RAW)
-creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
-gc = gspread.authorize(creds)
+sheet = connect_sheet()
 
-# ⚠ DO NOT use gc.open("Admissions")
-sheet = gc.open_by_key(SPREADSHEET_ID).sheet1
-
-# ---- BOT ----
+# -------- BOT ----------
 users = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -68,34 +74,27 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     u["city"] = text
 
-    row = [
-        u["name"],
-        u["phone"],
-        u["course"],
-        u["city"],
-        datetime.now().strftime("%d-%m-%Y %H:%M")
-    ]
+    row = [u["name"], u["phone"], u["course"], u["city"],
+           datetime.now().strftime("%d-%m-%Y %H:%M")]
 
     loop = asyncio.get_running_loop()
-    try:
-    await loop.run_in_executor(None, lambda: sheet.append_row(row))
-except Exception as e:
-    print("Google Sheet error:", e)
+    for _ in range(5):
+        try:
+            await loop.run_in_executor(None, lambda: sheet.append_row(row))
+            break
+        except Exception as e:
+            logging.error(f"Append failed: {e}")
+            await asyncio.sleep(5)
 
     await context.bot.send_message(
         ADMIN_ID,
-        f"New Lead\n\n"
-        f"Name: {u['name']}\n"
-        f"Phone: {u['phone']}\n"
-        f"Course: {u['course']}\n"
-        f"City: {u['city']}"
+        f"New Lead\n\nName: {u['name']}\nPhone: {u['phone']}\nCourse: {u['course']}\nCity: {u['city']}"
     )
 
     await update.message.reply_text("Thanks! Our team will contact you shortly.")
     del users[uid]
 
-import time
-
+# -------- SELF HEALING LOOP ----------
 def run_bot():
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
@@ -106,5 +105,5 @@ while True:
     try:
         run_bot()
     except Exception as e:
-        print("FATAL ERROR — restarting in 5 seconds:", e)
-        time.sleep(5)
+        logging.error(f"FATAL ERROR – restarting in 10s: {e}")
+        time.sleep(10)
